@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Clock Game by Yons Lab</title>
+    <style>
+        /* Mobile Reset */
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        
+        body { 
+            font-family: 'Segoe UI', system-ui, sans-serif; 
+            text-align: center; 
+            background-color: #f0fdf4; 
+            margin: 0; 
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        #game-container { 
+            width: 100%;
+            max-width: 400px; /* Fits all modern phones */
+            background: white; 
+            border-radius: 20px; 
+            box-shadow: 0 8px 20px rgba(0,0,0,0.1); 
+            overflow: hidden; 
+            display: flex;
+            flex-direction: column;
+        }
+
+        .title-bar {
+            background: #1e293b; color: #38bdf8; 
+            padding: 15px; font-size: 1.2rem; font-weight: bold; 
+            border-bottom: 4px solid #38bdf8;
+        }
+
+        .stats-bar {
+            display: flex; justify-content: space-around; background: #f8fafc;
+            padding: 12px; font-weight: bold; font-size: 0.9rem;
+            color: #475569; border-bottom: 1px solid #e2e8f0;
+        }
+        .streak-pop { color: #f59e0b; }
+
+        /* Responsive Clock Container */
+        .clock-wrapper {
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas { 
+            max-width: 100%; 
+            height: auto; 
+            background: #fff; 
+            border-radius: 50%;
+        }
+        
+        .options { 
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px; 
+            padding: 0 20px; 
+        }
+
+        /* Large Tap Targets for Mobile */
+        button { 
+            padding: 16px; 
+            font-size: 1.2rem; 
+            font-weight: 700; 
+            cursor: pointer; 
+            border: 2px solid #e2e8f0; 
+            background: #fff; 
+            border-radius: 12px; 
+            transition: transform 0.1s;
+        }
+
+        button:active { transform: scale(0.98); }
+
+        button.correct { background-color: #22c55e !important; color: white; border-color: #16a34a; }
+        button.wrong { background-color: #ef4444 !important; color: white; border-color: #dc2626; }
+
+        #feedback { 
+            margin: 15px 0; 
+            font-weight: 800; 
+            font-size: 1.1rem; 
+            min-height: 1.5em; 
+            color: #1e293b;
+        }
+
+        #next-btn { 
+            margin: 0 20px 25px 20px; 
+            padding: 15px; 
+            background: #38bdf8; 
+            color: white; 
+            border: none; 
+            border-radius: 12px; 
+            font-weight: bold;
+            font-size: 1.1rem;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div class="title-bar">Clock Game by Yons Lab</div>
+        
+        <div class="stats-bar">
+            <div>Score: <span id="score">0</span></div>
+            <div class="streak-pop">Streak: 🔥 <span id="streak">0</span></div>
+        </div>
+
+        <div class="clock-wrapper">
+            <canvas id="clock" width="280" height="280"></canvas>
+        </div>
+        
+        <div id="feedback"></div>
+
+        <div class="options" id="options-container"></div>
+        
+        <div style="height: 20px;"></div> <button id="next-btn" onclick="generateQuestion()">Next Question ➔</button>
+    </div>
+
+<script>
+    const canvas = document.getElementById('clock');
+    const ctx = canvas.getContext('2d');
+    const radius = canvas.height / 2;
+    const optionsContainer = document.getElementById('options-container');
+    const feedback = document.getElementById('feedback');
+    const nextBtn = document.getElementById('next-btn');
+    
+    let score = 0;
+    let streak = 0;
+    let currentHour, currentMinute;
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    function playSound(type) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (type === 'correct') {
+            osc.frequency.setValueAtTime(523, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+        } else {
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+        }
+    }
+
+    ctx.translate(radius, radius);
+
+    function drawClock(hour, minute) {
+        const drawRadius = radius * 0.90;
+        ctx.clearRect(-radius, -radius, canvas.width, canvas.height);
+        
+        // Face
+        ctx.beginPath(); ctx.arc(0, 0, drawRadius, 0, 2 * Math.PI);
+        ctx.fillStyle = 'white'; ctx.fill();
+        ctx.strokeStyle = '#334155'; ctx.lineWidth = 6; ctx.stroke();
+
+        // Numbers
+        ctx.font = "bold 22px sans-serif"; ctx.textBaseline = "middle"; ctx.textAlign = "center"; ctx.fillStyle = "#1e293b";
+        for (let num = 1; num <= 12; num++) {
+            let ang = num * Math.PI / 6;
+            ctx.rotate(ang); ctx.translate(0, -drawRadius * 0.82); ctx.rotate(-ang);
+            ctx.fillText(num.toString(), 0, 0);
+            ctx.rotate(ang); ctx.translate(0, drawRadius * 0.82); ctx.rotate(-ang);
+        }
+
+        // Hands
+        const hourPos = (hour % 12) * Math.PI / 6 + (minute * Math.PI / (6 * 60));
+        drawHand(ctx, hourPos, drawRadius * 0.5, 8, "#1e293b");
+        const minutePos = (minute * Math.PI / 30);
+        drawHand(ctx, minutePos, drawRadius * 0.8, 5, "#38bdf8");
+        
+        // Pin
+        ctx.beginPath(); ctx.arc(0, 0, 6, 0, 2 * Math.PI);
+        ctx.fillStyle = '#1e293b'; ctx.fill();
+    }
+
+    function drawHand(ctx, pos, length, width, color) {
+        ctx.beginPath(); ctx.lineWidth = width; ctx.lineCap = "round"; ctx.strokeStyle = color;
+        ctx.moveTo(0, 0); ctx.rotate(pos); ctx.lineTo(0, -length); ctx.stroke(); ctx.rotate(-pos);
+    }
+
+    function speak(text) {
+        window.speechSynthesis.cancel();
+        const msg = new SpeechSynthesisUtterance(text);
+        msg.rate = 1.0;
+        window.speechSynthesis.speak(msg);
+    }
+
+    function generateQuestion() {
+        feedback.innerText = "Select the right time!";
+        nextBtn.style.display = "none";
+        optionsContainer.innerHTML = "";
+
+        currentHour = Math.floor(Math.random() * 12) + 1;
+        currentMinute = Math.floor(Math.random() * 12) * 5;
+
+        drawClock(currentHour, currentMinute);
+        const correctTime = `${currentHour}:${currentMinute.toString().padStart(2, '0')}`;
+        let choices = [correctTime];
+
+        while (choices.length < 3) {
+            let h = Math.floor(Math.random() * 12) + 1;
+            let m = Math.floor(Math.random() * 12) * 5;
+            let choice = `${h}:${m.toString().padStart(2, '0')}`;
+            if (!choices.includes(choice)) choices.push(choice);
+        }
+        choices.sort(() => Math.random() - 0.5);
+
+        choices.forEach(time => {
+            const btn = document.createElement('button');
+            btn.innerText = time;
+            btn.onclick = () => {
+                const allButtons = optionsContainer.querySelectorAll('button');
+                allButtons.forEach(b => b.disabled = true);
+                if (time === correctTime) {
+                    btn.classList.add('correct');
+                    feedback.innerHTML = "Awesome! 🌟";
+                    score += 10; streak++;
+                    playSound('correct');
+                } else {
+                    btn.classList.add('wrong');
+                    feedback.innerHTML = `It is ${correctTime}`;
+                    streak = 0;
+                    playSound('wrong');
+                    allButtons.forEach(b => { if(b.innerText === correctTime) b.classList.add('correct'); });
+                }
+                document.getElementById('score').innerText = score;
+                document.getElementById('streak').innerText = streak;
+                speak(`The time is ${currentHour} ${currentMinute === 0 ? "o'clock" : currentMinute}`);
+                nextBtn.style.display = "block";
+            };
+            optionsContainer.appendChild(btn);
+        });
+    }
+
+    generateQuestion();
+</script>
+</body>
+</html>
